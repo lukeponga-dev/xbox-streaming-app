@@ -1,41 +1,78 @@
 <Page x:Class="StremioXboxPrototype.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="{StaticResource BackgroundBrush}" KeyDown="OnKeyDown">
   <Grid>
-    <Grid.ColumnDefinitions><ColumnDefinition Width="210"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-    <Border Grid.Column="0" Background="#10142B" BorderBrush="#252B50" BorderThickness="0,0,1,0">
-      <Grid Margin="14,22,14,30">
-        <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="*"/><RowDefinition Height="112"/></Grid.RowDefinitions>
-        <Border Width="46" Height="46" CornerRadius="10" HorizontalAlignment="Center" Background="#5141E6" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="45"/></Border.RenderTransform><FontIcon Glyph="&#xE768;" FontSize="22" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5"><FontIcon.RenderTransform><RotateTransform Angle="-45"/></FontIcon.RenderTransform></FontIcon></Border>
-        <StackPanel Grid.Row="1" Spacing="5">
-          <Button x:Name="HomeNav" Style="{StaticResource NavButton}" Tag="Home" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE80F;"/><TextBlock Text="Home"/></StackPanel></Button>
-          <Button x:Name="DiscoverNav" Style="{StaticResource NavButton}" Tag="Discover" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE721;"/><TextBlock Text="Discover"/></StackPanel></Button>
-          <Button x:Name="LibraryNav" Style="{StaticResource NavButton}" Tag="Library" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE8B7;"/><TextBlock Text="Library"/></StackPanel></Button>
-          <Button x:Name="AddonsNav" Style="{StaticResource NavButton}" Tag="Add-ons" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE7FC;"/><TextBlock Text="Add-ons"/></StackPanel></Button>
-          <Border Height="1" Background="#30385E" Margin="10,26,10,14"/>
-          <TextBlock Text="DEVELOPER / ADVANCED" Style="{StaticResource NavCaption}"/>
-          <Button x:Name="PlaybackLabNav" Style="{StaticResource NavButton}" Tag="Playback Lab" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE9CA;"/><TextBlock Text="Playback Lab"/></StackPanel></Button>
-          <Button x:Name="ServerNav" Style="{StaticResource NavButton}" Tag="Server" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE968;"/><TextBlock Text="Server"/></StackPanel></Button>
-          <Button x:Name="DiagnosticsNav" Style="{StaticResource NavButton}" Tag="Diagnostics" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE950;"/><TextBlock Text="Diagnostics"/></StackPanel></Button>
-          <Button x:Name="SettingsNav" Style="{StaticResource NavButton}" Tag="Settings" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings"/></StackPanel></Button>
-        </StackPanel>
-        <StackPanel Grid.Row="2" Spacing="10">
-          <StackPanel Orientation="Horizontal" Spacing="8"><Border Style="{StaticResource GamepadChip}" BorderBrush="#55D863"><TextBlock Text="A" Foreground="#55D863"/></Border><TextBlock Text="Select" Style="{StaticResource HintText}"/></StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="8"><Border Style="{StaticResource GamepadChip}" BorderBrush="#FF5B6D"><TextBlock Text="B" Foreground="#FF5B6D"/></Border><TextBlock Text="Back" Style="{StaticResource HintText}"/></StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="8"><Border Style="{StaticResource GamepadChip}" BorderBrush="#F5C842"><TextBlock Text="Y" Foreground="#F5C842"/></Border><TextBlock Text="Search" Style="{StaticResource HintText}"/></StackPanel>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    
+    <!-- Sidebar Navigation Rail -->
+    <Border Grid.Column="0" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource SidebarBorderBrush}" BorderThickness="0,0,1,0">
+      <Grid Margin="16,24,16,24">
+        <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        
+        <!-- Diamond Logo (top-left) -->
+        <Border Width="40" Height="40" CornerRadius="10" HorizontalAlignment="Left" Margin="8,0,0,0" Background="{StaticResource AccentBrush}" RenderTransformOrigin="0.5,0.5">
+          <Border.RenderTransform><RotateTransform Angle="45"/></Border.RenderTransform>
+          <FontIcon Glyph="&#xE768;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+            <FontIcon.RenderTransform><RotateTransform Angle="-45"/></FontIcon.RenderTransform>
+          </FontIcon>
+        </Border>
+        
+        <!-- Main 5 Navigation Items -->
+        <StackPanel Grid.Row="1" Spacing="6" Margin="0,16,0,0">
+          <Button x:Name="HomeNav" Style="{StaticResource NavButton}" Tag="Home" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE80F;"/><TextBlock Text="Home"/></StackPanel>
+          </Button>
+          <Button x:Name="DiscoverNav" Style="{StaticResource NavButton}" Tag="Discover" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE721;"/><TextBlock Text="Discover"/></StackPanel>
+          </Button>
+          <Button x:Name="LibraryNav" Style="{StaticResource NavButton}" Tag="Library" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE838;"/><TextBlock Text="Library"/></StackPanel>
+          </Button>
+          <Button x:Name="AddonsNav" Style="{StaticResource NavButton}" Tag="Add-ons" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE7FC;"/><TextBlock Text="Add-ons"/></StackPanel>
+          </Button>
+          <Button x:Name="SettingsNav" Style="{StaticResource NavButton}" Tag="Settings" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE713;"/><TextBlock Text="Settings"/></StackPanel>
+          </Button>
         </StackPanel>
       </Grid>
     </Border>
-    <Grid Grid.Column="1" Margin="29,17,25,23">
-      <Grid.RowDefinitions><RowDefinition Height="51"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+
+    <!-- Right Content Area -->
+    <Grid Grid.Column="1" Margin="32,20,32,20">
+      <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      
+      <!-- Top Header Bar -->
       <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="518"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBox x:Name="GlobalSearch" Grid.Column="1" Style="{StaticResource SearchBox}" PlaceholderText="Search movies, series, or add-ons" KeyDown="Search_KeyDown"/>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-          <Button Style="{StaticResource HeaderButton}" Click="Refresh_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE72C;"/><TextBlock Text="Refresh"/></StackPanel></Button>
-          <Button Style="{StaticResource HeaderButton}" Tag="Search" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE721;"/><TextBlock Text="Search"/></StackPanel></Button>
-          <Button Style="{StaticResource HeaderButton}" Tag="Profile" Click="Navigate_Click"><StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE77B;"/><TextBlock x:Name="ProfileHeaderText" Text="Profile"/><Border Background="#634CFF" CornerRadius="10" MinWidth="19" Height="19" Margin="5,0,0,0"><TextBlock Text="1" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel></Button>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="540"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        
+        <!-- Search bar with embedded icon -->
+        <Grid Grid.Column="1">
+          <TextBox x:Name="GlobalSearch" Style="{StaticResource SearchBox}" PlaceholderText="Search movies, series, or add-ons" Padding="44,8,18,8" KeyDown="Search_KeyDown"/>
+          <FontIcon Glyph="&#xE721;" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Left" Margin="16,0,0,0" IsHitTestVisible="False"/>
+        </Grid>
+
+        <!-- Right utility buttons -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+          <Button Style="{StaticResource HeaderButton}" Click="Refresh_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE72C;" Margin="0,0,8,0"/><TextBlock Text="Refresh"/></StackPanel>
+          </Button>
+          <Button Style="{StaticResource HeaderButton}" Tag="Search" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal"><FontIcon Glyph="&#xE721;" Margin="0,0,8,0"/><TextBlock Text="Search"/></StackPanel>
+          </Button>
+          <Button Style="{StaticResource HeaderButton}" Tag="Profile" Click="Navigate_Click">
+            <StackPanel Orientation="Horizontal">
+              <Border Background="#4F46E5" CornerRadius="12" Width="24" Height="24" Margin="0,0,8,0">
+                <TextBlock x:Name="ProfileInitialText" Text="P" FontSize="12" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <TextBlock x:Name="ProfileHeaderText" Text="Profile"/>
+            </StackPanel>
+          </Button>
         </StackPanel>
       </Grid>
-      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled"><StackPanel x:Name="ContentHost" Padding="0,18,0,0"/></ScrollViewer>
+
+      <!-- Scrollable Main Content -->
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+        <StackPanel x:Name="ContentHost" Padding="0,20,0,0"/>
+      </ScrollViewer>
     </Grid>
   </Grid>
 </Page>

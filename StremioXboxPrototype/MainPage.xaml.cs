@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using StremioXboxPrototype.Models;
 using StremioXboxPrototype.Services;
 using Windows.Media.Core;
+using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.System;
 using Windows.UI;
@@ -147,19 +148,24 @@ public sealed partial class MainPage : Page
 
     private void UpdateNavigation(string page)
     {
-        foreach (var button in new[] { HomeNav, DiscoverNav, LibraryNav, AddonsNav, PlaybackLabNav, ServerNav, DiagnosticsNav, SettingsNav })
+        foreach (var button in new[] { HomeNav, DiscoverNav, LibraryNav, AddonsNav, SettingsNav })
         {
             var active = string.Equals(button.Tag as string, page, StringComparison.Ordinal);
-            button.Background = active ? Brush("AccentBrush") : Brush("SurfaceBrush");
-            button.BorderBrush = active ? Brush("FocusBorderBrush") : new SolidColorBrush(Color.FromArgb(255, 44, 53, 105));
-            button.Foreground = Brush("TextPrimaryBrush");
+            button.Background = active ? new SolidColorBrush(Color.FromArgb(255, 34, 38, 76)) : new SolidColorBrush(Colors.Transparent);
+            button.BorderBrush = active ? new SolidColorBrush(Color.FromArgb(255, 44, 50, 94)) : new SolidColorBrush(Colors.Transparent);
+            button.Foreground = active ? Brush("TextPrimaryBrush") : Brush("TextSecondaryBrush");
         }
     }
 
     private async Task UpdateProfileHeaderAsync()
     {
         var account = await _auth.GetCurrentAsync();
-        ProfileHeaderText.Text = account?.DisplayName ?? "Profile";
+        var displayName = account?.DisplayName ?? "Profile";
+        ProfileHeaderText.Text = displayName;
+        if (FindName("ProfileInitialText") is TextBlock initialText)
+        {
+            initialText.Text = !string.IsNullOrWhiteSpace(displayName) ? displayName[..1].ToUpperInvariant() : "P";
+        }
     }
 
     private static Button? FindButton(DependencyObject root)
@@ -175,7 +181,7 @@ public sealed partial class MainPage : Page
 
     private static string Subtitle(string page) => page switch
     {
-        "Home" => "Your installed add-ons and watchlist",
+        "Home" => "Pick up where you left off or find your next favourite.",
         "Discover" => "Browse the catalogs provided by your add-ons",
         "Movies" => "Movie catalogs provided by your add-ons",
         "Series" => "Series catalogs provided by your add-ons",
@@ -188,7 +194,7 @@ public sealed partial class MainPage : Page
         "Playback Lab" => "Test a direct stream on this device",
         "Server" => "Check a local or remote playback endpoint",
         "Diagnostics" => "Live connectivity and recorded application events",
-        "Settings" => "Playback and appearance preferences",
+        "Settings" => "Playback preferences and advanced tools",
         _ => "Local profile"
     };
 
@@ -276,12 +282,58 @@ public sealed partial class MainPage : Page
             ContentHost.Children.Add(Panel(intro));
             return;
         }
-        ContentHost.Children.Add(Panel(Text("Connected add-ons: " + string.Join(", ", addons.Select(a => a.Name)), 16, false)));
-        Message("Continue Watching is empty until a playback session is recorded on this device.");
+
+        ContentHost.Children.Add(ServerBanner());
+
         var movies = await _stremio.GetAsync("movie", null, token);
-        Row("Movies", movies);
+        Row("Popular Movies", movies);
+
         var series = await _stremio.GetAsync("series", null, token);
-        Row("Series", series);
+        Row("Popular Series", series);
+    }
+
+    private Border ServerBanner()
+    {
+        var banner = new Grid();
+        banner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        banner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var leftSide = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var warnIcon = new FontIcon { Glyph = "\uE7BA", FontSize = 18, Foreground = Brush("AlertIconBrush"), Margin = new Thickness(0, 0, 14, 0) };
+        var warnText = new TextBlock
+        {
+            Text = "Your playback server is offline. You can still browse or try reconnecting.",
+            FontSize = 14,
+            Foreground = Brush("AlertTextBrush"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        leftSide.Children.Add(warnIcon);
+        leftSide.Children.Add(warnText);
+        Grid.SetColumn(leftSide, 0);
+        banner.Children.Add(leftSide);
+
+        var reconnectBtn = Action("Reconnect", async () =>
+        {
+            Feedback("Testing streaming server connection...");
+            var saved = ApplicationData.Current.LocalSettings.Values["server-url"] as string ?? "";
+            var res = await _server.TestAsync(saved, _pageCts.Token);
+            Feedback(res?.Status == "Reachable" ? "Playback server connected." : "Playback server is offline. Configure endpoint in Settings.");
+            await ShowPageAsync(new PageState("Home"), false);
+        });
+        reconnectBtn.Style = (Style)Application.Current.Resources["BannerButton"];
+        Grid.SetColumn(reconnectBtn, 1);
+        banner.Children.Add(reconnectBtn);
+
+        return new Border
+        {
+            Background = Brush("AlertBackgroundBrush"),
+            BorderBrush = Brush("AlertBorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(18, 10, 18, 10),
+            Margin = new Thickness(0, 4, 0, 18),
+            Child = banner
+        };
     }
 
     private async Task DiscoverAsync(CancellationToken token)
@@ -315,35 +367,183 @@ public sealed partial class MainPage : Page
 
     private void Row(string heading, IReadOnlyList<MediaItem> items)
     {
-        ContentHost.Children.Add(Text(heading, 24));
+        var headerGrid = new Grid { Margin = new Thickness(0, 12, 0, 10) };
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var titleBlock = new TextBlock { Text = heading, FontSize = 20, FontWeight = Windows.UI.Text.FontWeights.Bold, Foreground = Brush("TextPrimaryBrush") };
+        Grid.SetColumn(titleBlock, 0);
+        headerGrid.Children.Add(titleBlock);
+
+        var seeAllBtn = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Children =
+                {
+                    new TextBlock { Text = "See all", FontSize = 13, Foreground = Brush("TextSecondaryBrush"), VerticalAlignment = VerticalAlignment.Center },
+                    new FontIcon { Glyph = "\uE76C", FontSize = 11, Foreground = Brush("TextSecondaryBrush"), Margin = new Thickness(6, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center }
+                }
+            },
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 2, 6, 2),
+            CornerRadius = new CornerRadius(4)
+        };
+        seeAllBtn.Click += (_, _) =>
+        {
+            if (heading.Contains("Movie", StringComparison.OrdinalIgnoreCase))
+                _ = ShowPageAsync(new PageState("Movies"));
+            else if (heading.Contains("Series", StringComparison.OrdinalIgnoreCase))
+                _ = ShowPageAsync(new PageState("Series"));
+        };
+        Grid.SetColumn(seeAllBtn, 1);
+        headerGrid.Children.Add(seeAllBtn);
+        ContentHost.Children.Add(headerGrid);
+
         if (items.Count == 0) { Message("Nothing available in this collection."); return; }
+
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         foreach (var item in items) row.Children.Add(MediaCard(item));
-        ContentHost.Children.Add(new ScrollViewer
+        var scrollViewer = new ScrollViewer
         {
-            Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = row,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             HorizontalScrollMode = ScrollMode.Enabled,
-            VerticalScrollMode = ScrollMode.Disabled
-        });
+            VerticalScrollMode = ScrollMode.Disabled,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        ContentHost.Children.Add(scrollViewer);
+
+        var scrollBarGrid = new Grid { Margin = new Thickness(0, 4, 0, 18) };
+        scrollBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        scrollBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var trackCanvas = new Canvas { Height = 4, Margin = new Thickness(0, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center };
+        var trackBg = new Border { Height = 3, Background = new SolidColorBrush(Color.FromArgb(255, 23, 27, 56)), CornerRadius = new CornerRadius(1.5), Width = 1600 };
+        var trackThumb = new Border { Height = 3, Width = 110, Background = Brush("AccentBrush"), CornerRadius = new CornerRadius(1.5) };
+        trackCanvas.Children.Add(trackBg);
+        trackCanvas.Children.Add(trackThumb);
+        Grid.SetColumn(trackCanvas, 0);
+        scrollBarGrid.Children.Add(trackCanvas);
+
+        scrollViewer.ViewChanged += (_, _) =>
+        {
+            if (scrollViewer.ScrollableWidth > 0)
+            {
+                var maxOffset = Math.Max(1, scrollViewer.ScrollableWidth);
+                var ratio = scrollViewer.HorizontalOffset / maxOffset;
+                Canvas.SetLeft(trackThumb, ratio * Math.Max(0, scrollViewer.ActualWidth - 140));
+            }
+        };
+
+        var scrollNextBtn = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE76C", FontSize = 12, Foreground = Brush("TextSecondaryBrush"), Margin = new Thickness(0) },
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 2, 6, 2),
+            CornerRadius = new CornerRadius(4),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        scrollNextBtn.Click += (_, _) =>
+        {
+            scrollViewer.ChangeView(scrollViewer.HorizontalOffset + 480, null, null);
+        };
+        Grid.SetColumn(scrollNextBtn, 1);
+        scrollBarGrid.Children.Add(scrollNextBtn);
+
+        ContentHost.Children.Add(scrollBarGrid);
     }
 
     private Button MediaCard(MediaItem item)
     {
-        var card = new StackPanel { Width = 178 };
-        var poster = new Border { Height = 244, Background = Brush("SurfaceBrush"), CornerRadius = new CornerRadius(8) };
+        var card = new StackPanel { Width = 162 };
+        var posterBorder = new Border
+        {
+            Height = 238,
+            Background = Brush("SurfaceBrush"),
+            CornerRadius = new CornerRadius(10),
+            BorderBrush = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(2.5)
+        };
+
         if (Uri.TryCreate(item.Poster, UriKind.Absolute, out var posterUri))
-            poster.Child = new Image { Source = new BitmapImage(posterUri), Stretch = Stretch.UniformToFill };
-        else poster.Child = new TextBlock { Text = item.Title.Length > 0 ? item.Title[..1] : "?", FontSize = 56, Foreground = Brush("AccentBrush"),
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        card.Children.Add(poster);
-        card.Children.Add(Text(item.Title, 16));
-        card.Children.Add(Text(string.Join(" • ", new[] { item.ReleaseInfo, item.Runtime }.Where(x => !string.IsNullOrWhiteSpace(x))), 13, false));
-        var button = new Button { Content = card, Style = ButtonStyle, Width = 190, Padding = new Thickness(6),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(2, 4, 10, 4) };
+        {
+            posterBorder.Child = new Image
+            {
+                Source = new BitmapImage(posterUri),
+                Stretch = Stretch.UniformToFill
+            };
+        }
+        else
+        {
+            posterBorder.Child = new TextBlock
+            {
+                Text = item.Title.Length > 0 ? item.Title[..1] : "?",
+                FontSize = 52,
+                FontWeight = Windows.UI.Text.FontWeights.Bold,
+                Foreground = Brush("AccentBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        card.Children.Add(posterBorder);
+
+        var titleBlock = new TextBlock
+        {
+            Text = item.Title,
+            FontSize = 14,
+            FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+            Foreground = Brush("TextPrimaryBrush"),
+            Margin = new Thickness(0, 8, 0, 2),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
+        };
+        card.Children.Add(titleBlock);
+
+        var metaParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(item.ReleaseInfo)) metaParts.Add(item.ReleaseInfo);
+        if (item.Genres.Count > 0 && !string.IsNullOrWhiteSpace(item.Genres[0]))
+            metaParts.Add(item.Genres[0]);
+        else if (!string.IsNullOrWhiteSpace(item.Runtime))
+            metaParts.Add(item.Runtime);
+
+        var metaText = metaParts.Count > 0 ? string.Join("  •  ", metaParts) : (item.Type == "series" ? "Series" : "Movie");
+        var metaBlock = new TextBlock
+        {
+            Text = metaText,
+            FontSize = 12,
+            Foreground = Brush("TextSecondaryBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
+        };
+        card.Children.Add(metaBlock);
+
+        var button = new Button
+        {
+            Content = card,
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 0, 14, 4),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+
         button.Click += (_, _) => _ = ShowPageAsync(new PageState("Details", Media: item));
-        button.GotFocus += (_, _) => Canvas.SetZIndex(button, 10);
-        button.LostFocus += (_, _) => Canvas.SetZIndex(button, 0);
+        button.GotFocus += (_, _) =>
+        {
+            posterBorder.BorderBrush = Brush("FocusBorderBrush");
+            Canvas.SetZIndex(button, 10);
+        };
+        button.LostFocus += (_, _) =>
+        {
+            posterBorder.BorderBrush = new SolidColorBrush(Colors.Transparent);
+            Canvas.SetZIndex(button, 0);
+        };
+
         return button;
     }
 
@@ -401,12 +601,173 @@ public sealed partial class MainPage : Page
     {
         if (stream.Uri is null) { Message("This source does not provide a direct playback URL."); return; }
         ContentHost.Children.Add(Text(stream.Name + " • " + stream.AddonName, 19, false));
+
+        var source = MediaSource.CreateFromUri(stream.Uri);
+        var playbackItem = new MediaPlaybackItem(source);
+
         _player = new MediaPlayerElement
         {
-            AreTransportControlsEnabled = true, AutoPlay = true, Height = 640,
-            Source = MediaSource.CreateFromUri(stream.Uri)
+            AreTransportControlsEnabled = true,
+            AutoPlay = true,
+            Height = 640,
+            Source = playbackItem
         };
+
+        var transport = _player.TransportControls ?? new MediaTransportControls();
+        transport.IsVolumeButtonVisible = true;
+        transport.IsVolumeEnabled = true;
+        transport.IsFullWindowButtonVisible = true;
+        transport.IsFullWindowEnabled = true;
+        _player.TransportControls = transport;
+
+        if (_player.MediaPlayer is not null)
+        {
+            _player.MediaPlayer.AudioCategory = MediaPlayerAudioCategory.Movie;
+        }
+
         ContentHost.Children.Add(_player);
+
+        var audioPanel = new StackPanel { Spacing = 10 };
+        audioPanel.Children.Add(Text("Audio & Volume Controls", 20));
+
+        var audioControlsRow = new StackPanel { Orientation = Orientation.Horizontal };
+
+        var trackCombo = new ComboBox
+        {
+            Header = "Audio Track",
+            Background = Brush("SurfaceBrush"),
+            Foreground = Brush("TextPrimaryBrush"),
+            BorderBrush = Brush("FocusBorderBrush"),
+            MinWidth = 280,
+            PlaceholderText = "Detecting audio tracks...",
+            Margin = new Thickness(0, 0, 16, 0)
+        };
+
+        var isUpdatingTracks = false;
+        void RefreshAudioTracks()
+        {
+            isUpdatingTracks = true;
+            try
+            {
+                var tracks = playbackItem.AudioTracks;
+                var items = new List<string>();
+                for (var i = 0; i < tracks.Count; i++)
+                {
+                    var track = tracks[i];
+                    var label = !string.IsNullOrWhiteSpace(track.Label) ? track.Label : track.Name;
+                    if (!string.IsNullOrWhiteSpace(track.Language) && !string.Equals(label, track.Language, StringComparison.OrdinalIgnoreCase))
+                        label = $"{label} ({track.Language})";
+                    if (string.IsNullOrWhiteSpace(label)) label = $"Audio Track {i + 1}";
+                    items.Add(label);
+                }
+
+                if (items.Count == 0)
+                {
+                    items.Add("Default Audio Track");
+                }
+
+                trackCombo.ItemsSource = items;
+                var selected = tracks.SelectedIndex;
+                if (selected >= 0 && selected < items.Count)
+                    trackCombo.SelectedIndex = selected;
+                else if (items.Count > 0)
+                    trackCombo.SelectedIndex = 0;
+            }
+            finally
+            {
+                isUpdatingTracks = false;
+            }
+        }
+
+        RefreshAudioTracks();
+
+        trackCombo.SelectionChanged += (_, _) =>
+        {
+            if (isUpdatingTracks) return;
+            if (trackCombo.SelectedIndex >= 0 && trackCombo.SelectedIndex < playbackItem.AudioTracks.Count)
+            {
+                playbackItem.AudioTracks.SelectedIndex = trackCombo.SelectedIndex;
+                var trackName = trackCombo.SelectedItem as string ?? "Selected Track";
+                _diagnostics.Record("INFO", "Audio track switched", trackName);
+            }
+        };
+
+        playbackItem.AudioTracksChanged += (s, e) =>
+        {
+            _ = Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+            {
+                RefreshAudioTracks();
+            });
+        };
+
+        if (_player.MediaPlayer is not null)
+        {
+            _player.MediaPlayer.MediaOpened += (s, e) =>
+            {
+                _ = Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+                {
+                    RefreshAudioTracks();
+                });
+            };
+        }
+
+        audioControlsRow.Children.Add(trackCombo);
+
+        var volumeText = Text($"Volume: {(int)((_player.MediaPlayer?.Volume ?? 1.0) * 100)}%", 16);
+        volumeText.VerticalAlignment = VerticalAlignment.Center;
+        volumeText.Margin = new Thickness(14, 26, 8, 0);
+
+        void UpdateVolumeText()
+        {
+            if (_player.MediaPlayer is { } mp)
+            {
+                volumeText.Text = mp.IsMuted ? "Volume: Muted" : $"Volume: {(int)Math.Round(mp.Volume * 100)}%";
+            }
+        }
+
+        var volDownBtn = Action("-10%", () =>
+        {
+            if (_player.MediaPlayer is { } mp)
+            {
+                mp.Volume = Math.Max(0.0, Math.Round((mp.Volume - 0.1) * 10) / 10);
+                if (mp.IsMuted && mp.Volume > 0) mp.IsMuted = false;
+                UpdateVolumeText();
+            }
+        });
+        volDownBtn.VerticalAlignment = VerticalAlignment.Bottom;
+        volDownBtn.Margin = new Thickness(0, 0, 8, 0);
+
+        var volUpBtn = Action("+10%", () =>
+        {
+            if (_player.MediaPlayer is { } mp)
+            {
+                mp.Volume = Math.Min(1.0, Math.Round((mp.Volume + 0.1) * 10) / 10);
+                if (mp.IsMuted) mp.IsMuted = false;
+                UpdateVolumeText();
+            }
+        });
+        volUpBtn.VerticalAlignment = VerticalAlignment.Bottom;
+        volUpBtn.Margin = new Thickness(0, 0, 8, 0);
+
+        var muteBtn = Action("Mute / Unmute", () =>
+        {
+            if (_player.MediaPlayer is { } mp)
+            {
+                mp.IsMuted = !mp.IsMuted;
+                UpdateVolumeText();
+            }
+        });
+        muteBtn.VerticalAlignment = VerticalAlignment.Bottom;
+        muteBtn.Margin = new Thickness(0, 0, 8, 0);
+
+        audioControlsRow.Children.Add(volDownBtn);
+        audioControlsRow.Children.Add(volUpBtn);
+        audioControlsRow.Children.Add(muteBtn);
+        audioControlsRow.Children.Add(volumeText);
+
+        audioPanel.Children.Add(audioControlsRow);
+        ContentHost.Children.Add(Panel(audioPanel));
+
         ContentHost.Children.Add(Action("Back to Streams", Back));
     }
 
@@ -495,6 +856,13 @@ public sealed partial class MainPage : Page
             await _settings.SaveAsync(_appSettings);
             Feedback("Settings saved on this device.");
         }));
+
+        ContentHost.Children.Add(Text("Advanced & System", 24));
+        var advancedRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+        advancedRow.Children.Add(Action("Server Configuration", () => _ = ShowPageAsync(new PageState("Server"))));
+        advancedRow.Children.Add(Action("Diagnostics", () => _ = ShowPageAsync(new PageState("Diagnostics"))));
+        advancedRow.Children.Add(Action("Playback Lab", () => _ = ShowPageAsync(new PageState("Playback Lab"))));
+        ContentHost.Children.Add(advancedRow);
     }
 
     private void Toggle(string label, bool value, Action<bool> changed)
