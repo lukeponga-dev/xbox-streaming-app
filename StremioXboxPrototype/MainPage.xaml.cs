@@ -45,6 +45,7 @@ public sealed partial class MainPage : Page
         {
             _appSettings = await _settings.LoadAsync();
             await UpdateProfileHeaderAsync();
+            await SyncAddonsQuietAsync(_pageCts.Token);
             await ShowPageAsync(new PageState("Home"), false);
         };
     }
@@ -247,8 +248,31 @@ public sealed partial class MainPage : Page
         {
             var intro = new StackPanel();
             intro.Children.Add(Text("Connect your first add-on", 24));
-            intro.Children.Add(Text("Install a Stremio-compatible manifest URL to browse real catalogs and streams.", 16, false));
-            intro.Children.Add(Action("Open Add-ons", () => _ = ShowPageAsync(new PageState("Add-ons"))));
+            intro.Children.Add(Text("Install a Stremio-compatible manifest URL to browse real catalogs and streams, or sync add-ons from your Stremio account.", 16, false));
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+            actions.Children.Add(Action("Open Add-ons", () => _ = ShowPageAsync(new PageState("Add-ons"))));
+            if (_auth.GetSessionKey() is not null)
+            {
+                actions.Children.Add(Action("Sync Account Add-ons", async () =>
+                {
+                    try
+                    {
+                        var count = await _stremio.SyncFromAccountAsync(_auth.GetSessionKey()!, _pageCts.Token);
+                        await ShowPageAsync(new PageState("Home"), false);
+                        Feedback(count == 0
+                            ? "This Stremio account has no add-ons to sync."
+                            : $"Synced {count} add-ons from your Stremio account.");
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) when (ex is ArgumentException or HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+                    { Feedback("Could not sync add-ons: " + ex.Message); }
+                }));
+            }
+            else
+            {
+                actions.Children.Add(Action("Sign in to Stremio", () => _ = ShowPageAsync(new PageState("Profile"))));
+            }
+            intro.Children.Add(actions);
             ContentHost.Children.Add(Panel(intro));
             return;
         }
@@ -357,7 +381,12 @@ public sealed partial class MainPage : Page
     private async Task StreamsAsync(MediaItem item, CancellationToken token)
     {
         var streams = await _stremio.GetStreamsAsync(item, token);
-        if (streams.Count == 0) { Message("No add-on returned a stream for this item."); return; }
+        if (streams.Count == 0)
+        {
+            Message("No add-on returned a stream for this title. Sync add-ons from your Stremio account, and save a streaming server in Server if the sources are torrents.");
+            ContentHost.Children.Add(Action("Open Add-ons", () => _ = ShowPageAsync(new PageState("Add-ons"))));
+            return;
+        }
         foreach (var stream in streams)
         {
             var label = $"{stream.Name}  •  {stream.AddonName}\n{stream.Description}";
@@ -389,13 +418,35 @@ public sealed partial class MainPage : Page
             Foreground = Brush("TextPrimaryBrush"), BorderBrush = Brush("AccentBrush"), Padding = new Thickness(14),
             MinWidth = 500, CornerRadius = new CornerRadius(8) };
         ContentHost.Children.Add(input);
+        if (_auth.GetSessionKey() is not null)
+        {
+            ContentHost.Children.Add(Action("Sync add-ons from Stremio account", async () =>
+            {
+                try
+                {
+                    var count = await _stremio.SyncFromAccountAsync(_auth.GetSessionKey()!, _pageCts.Token);
+                    await ShowPageAsync(new PageState("Add-ons"), false);
+                    Feedback(count == 0
+                        ? "This Stremio account has no add-ons to sync."
+                        : $"Synced {count} add-ons from your Stremio account.");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) when (ex is ArgumentException or HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+                { Feedback("Could not sync add-ons: " + ex.Message); }
+            }));
+        }
+        else
+        {
+            Message("Sign in on Profile to sync the add-ons already installed on your Stremio account.");
+            ContentHost.Children.Add(Action("Go to Profile to Sign In", () => _ = ShowPageAsync(new PageState("Profile"))));
+        }
         ContentHost.Children.Add(Action("Install Add-on", async () =>
         {
             try
             {
                 var addon = await _stremio.InstallAsync(input.Text, _pageCts.Token);
-                Feedback($"Installed {addon.Name}.");
                 await ShowPageAsync(new PageState("Add-ons"), false);
+                Feedback($"Installed {addon.Name}.");
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) when (ex is ArgumentException or System.Net.Http.HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)
@@ -529,14 +580,28 @@ public sealed partial class MainPage : Page
         if (account is not null)
         {
             ContentHost.Children.Add(Panel(Text($"Signed in to Stremio\n{account.DisplayName}\n{account.Email}\n\nSaved items on this device: {_library.Watchlist().Count}", 19)));
+            ContentHost.Children.Add(Action("Sync add-ons from this account", async () =>
+            {
+                try
+                {
+                    var count = await _stremio.SyncFromAccountAsync(_auth.GetSessionKey() ?? "", _pageCts.Token);
+                    await ShowPageAsync(new PageState("Profile"), false);
+                    Feedback(count == 0
+                        ? "This Stremio account has no add-ons to sync."
+                        : $"Synced {count} add-ons from your Stremio account.");
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) when (ex is ArgumentException or HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+                { Feedback("Could not sync add-ons: " + ex.Message); }
+            }));
             ContentHost.Children.Add(Action("Sign out", async () =>
             {
                 try
                 {
                     await _auth.LogoutAsync(_pageCts.Token);
                     await UpdateProfileHeaderAsync();
-                    Feedback("Signed out of Stremio on this device.");
                     await ShowPageAsync(new PageState("Profile"), false);
+                    Feedback("Signed out of Stremio on this device.");
                 }
                 catch (OperationCanceledException) { }
             }));
@@ -568,15 +633,45 @@ public sealed partial class MainPage : Page
             try
             {
                 var signedIn = await _auth.LoginAsync(email.Text, secret, _pageCts.Token);
+                await SyncAddonsQuietAsync(_pageCts.Token);
                 await UpdateProfileHeaderAsync();
-                Feedback($"Signed in as {signedIn.DisplayName}.");
                 await ShowPageAsync(new PageState("Profile"), false);
+                Feedback($"Signed in as {signedIn.DisplayName}. Add-ons synced from your account.");
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) when (ex is ArgumentException or HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
             { Feedback(ex.Message); }
         }));
-        Message("Google, Facebook, and Apple sign-in require their provider-specific authorization flow and are not included in this email/password screen.");
+        ContentHost.Children.Add(Action("Sign in with Facebook", async () =>
+        {
+            try
+            {
+                var request = _auth.CreateFacebookLogin();
+                Feedback("Complete Facebook sign-in in the browser. This page continues automatically when Stremio returns the account.");
+                ContentHost.Children.Add(Panel(Text($"If the browser did not open, visit:\n{request.LoginUri}", 15, false)));
+                _ = await Launcher.LaunchUriAsync(request.LoginUri);
+                var signedIn = await _auth.CompleteFacebookLoginAsync(request.State, _pageCts.Token);
+                await SyncAddonsQuietAsync(_pageCts.Token);
+                await UpdateProfileHeaderAsync();
+                await ShowPageAsync(new PageState("Profile"), false);
+                Feedback($"Signed in as {signedIn.DisplayName}.");
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) when (ex is ArgumentException or HttpRequestException or JsonException or InvalidOperationException
+                or TaskCanceledException or TimeoutException)
+            { Feedback(ex.Message); }
+        }));
+        Message("Google and Apple sign-in are not included on this screen.");
+    }
+
+    private async Task SyncAddonsQuietAsync(CancellationToken token)
+    {
+        var key = _auth.GetSessionKey();
+        if (string.IsNullOrWhiteSpace(key)) return;
+        try { await _stremio.SyncFromAccountAsync(key, token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        { _diagnostics.Record("WARN", "Add-on sync failed", ex.Message); }
     }
 
     private void Back()

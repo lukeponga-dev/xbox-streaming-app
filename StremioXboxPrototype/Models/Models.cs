@@ -23,6 +23,7 @@ public sealed record AddonManifest(string Id, string Name, string Description, U
 public sealed record DiagnosticEvent(DateTimeOffset Time, string Level, string Message, string Detail);
 public sealed record ServerInfo(string Name, Uri Endpoint, string Status, DateTimeOffset? LastConnected = null);
 public sealed record StremioAccount(string Id, string DisplayName, string? Email);
+public sealed record FacebookLoginRequest(string State, Uri LoginUri);
 
 public sealed class AppSettings
 {
