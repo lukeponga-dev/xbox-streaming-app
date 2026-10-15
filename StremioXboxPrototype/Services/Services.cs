@@ -24,6 +24,7 @@ public interface IAddonService
     Task<AddonManifest> InstallAsync(string manifestUrl, CancellationToken token);
     Task RemoveAsync(Uri manifestUri);
     Task<int> SyncFromAccountAsync(string authKey, CancellationToken token);
+    void InvalidateCache();
 }
 public interface IDiagnosticsService
 {
@@ -51,6 +52,10 @@ public interface ILibraryService
 
 [JsonSerializable(typeof(AppSettings))]
 [JsonSerializable(typeof(List<MediaItem>))]
+[JsonSerializable(typeof(List<AddonManifest>))]
+[JsonSerializable(typeof(AddonManifest))]
+[JsonSerializable(typeof(CatalogDefinition))]
+[JsonSerializable(typeof(List<CatalogDefinition>))]
 internal partial class SettingsJsonContext : JsonSerializerContext { }
 
 public sealed class DiagnosticsService : IDiagnosticsService
@@ -338,15 +343,34 @@ public sealed class StremioService : IAddonService, ICatalogService, IMetadataSe
     private static readonly HttpClient Client = CreateClient();
     private readonly IDiagnosticsService _diagnostics;
     private IReadOnlyList<AddonManifest>? _installedCache;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (IReadOnlyList<MediaItem> Items, DateTimeOffset ExpiresAt)> _catalogCache = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, MediaMetadata> _metadataCache = new();
 
     public StremioService(IDiagnosticsService diagnostics) => _diagnostics = diagnostics;
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
+        };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Stremio/4.4 (Xbox)");
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
         return client;
+    }
+
+    public void InvalidateCache()
+    {
+        _installedCache = null;
+        _catalogCache.Clear();
+        _metadataCache.Clear();
+        try
+        {
+            if (System.IO.File.Exists(ManifestCacheFilePath))
+                System.IO.File.Delete(ManifestCacheFilePath);
+        }
+        catch { }
     }
 
     public async Task<AddonManifest> InstallAsync(string manifestUrl, CancellationToken token)
@@ -359,7 +383,7 @@ public sealed class StremioService : IAddonService, ICatalogService, IMetadataSe
             urls.Add(uri.AbsoluteUri);
             SaveUrls(urls);
         }
-        _installedCache = null;
+        InvalidateCache();
         _diagnostics.Record("INFO", "Add-on installed", manifest.Name);
         return manifest;
     }
@@ -369,7 +393,7 @@ public sealed class StremioService : IAddonService, ICatalogService, IMetadataSe
         var urls = SavedUrls();
         urls.RemoveAll(url => string.Equals(url, manifestUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase));
         SaveUrls(urls);
-        _installedCache = null;
+        InvalidateCache();
         _diagnostics.Record("INFO", "Add-on removed", manifestUri.Host);
         return Task.CompletedTask;
     }
@@ -419,67 +443,182 @@ public sealed class StremioService : IAddonService, ICatalogService, IMetadataSe
         foreach (var local in SavedUrls())
             if (!merged.Contains(local, StringComparer.OrdinalIgnoreCase)) merged.Add(local);
         SaveUrls(merged);
-        _installedCache = null;
+        InvalidateCache();
         _diagnostics.Record("INFO", "Add-ons synced from Stremio", $"{cloud.Count} from account, {merged.Count} total");
         return cloud.Count;
+    }
+
+    private static string ManifestCacheFilePath =>
+        System.IO.Path.Combine(ApplicationData.Current.LocalFolder.Path, "addon-manifest-cache.json");
+
+    private static IReadOnlyList<AddonManifest>? LoadDiskManifestCache(IReadOnlyList<string> expectedUrls)
+    {
+        try
+        {
+            var path = ManifestCacheFilePath;
+            if (!System.IO.File.Exists(path)) return null;
+            var json = System.IO.File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            var list = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.ListAddonManifest);
+            if (list is null || list.Count != expectedUrls.Count) return null;
+            var cachedUrls = list.Select(m => m.ManifestUri.AbsoluteUri).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (expectedUrls.All(u => cachedUrls.Contains(u))) return list;
+            return null;
+        }
+        catch { return null; }
+    }
+
+    private static void SaveDiskManifestCache(IReadOnlyList<AddonManifest> manifests)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(manifests.ToList(), SettingsJsonContext.Default.ListAddonManifest);
+            System.IO.File.WriteAllText(ManifestCacheFilePath, json);
+        }
+        catch { }
     }
 
     public async Task<IReadOnlyList<AddonManifest>> GetInstalledAsync(CancellationToken token)
     {
         if (_installedCache is not null) return _installedCache;
-        var result = new List<AddonManifest>();
-        foreach (var url in SavedUrls())
+
+        var urls = SavedUrls();
+        if (urls.Count == 0)
         {
-            token.ThrowIfCancellationRequested();
+            _installedCache = Array.Empty<AddonManifest>();
+            return _installedCache;
+        }
+
+        var diskCached = LoadDiskManifestCache(urls);
+        if (diskCached is not null && diskCached.Count > 0)
+        {
+            _installedCache = diskCached;
+            _ = Task.Run(() => RefreshManifestsAsync(CancellationToken.None));
+            return diskCached;
+        }
+
+        return await RefreshManifestsAsync(token);
+    }
+
+    private async Task<IReadOnlyList<AddonManifest>> RefreshManifestsAsync(CancellationToken token)
+    {
+        var urls = SavedUrls();
+        if (urls.Count == 0)
+        {
+            _installedCache = Array.Empty<AddonManifest>();
+            SaveDiskManifestCache(_installedCache);
+            return _installedCache;
+        }
+
+        var tasks = urls.Select(async url =>
+        {
             var uri = new Uri(url);
-            try { result.Add(await LoadManifestAsync(uri, token)); }
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+            try
+            {
+                return await LoadManifestAsync(uri, linkedCts.Token);
+            }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException)
             {
                 _diagnostics.Record("WARN", "Add-on unavailable", $"{uri.Host}: {ex.Message}");
-                result.Add(new AddonManifest(uri.AbsoluteUri, uri.Host, "Manifest unavailable", uri,
-                    Array.Empty<CatalogDefinition>(), false, false));
+                return new AddonManifest(uri.AbsoluteUri, uri.Host, "Manifest unavailable", uri,
+                    Array.Empty<CatalogDefinition>(), false, false);
             }
-        }
-        _installedCache = result;
-        return result;
+        });
+
+        var results = await Task.WhenAll(tasks);
+        _installedCache = results.ToList();
+        SaveDiskManifestCache(_installedCache);
+        return _installedCache;
     }
 
     public async Task<IReadOnlyList<MediaItem>> GetAsync(string type, string? search, CancellationToken token)
     {
-        var items = new List<MediaItem>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var addon in await GetInstalledAsync(token))
-        foreach (var catalog in addon.Catalogs.Where(c => c.Type == type && (search is null || c.SupportsSearch)))
+        var cacheKey = $"{type}:{search ?? ""}";
+        if (_catalogCache.TryGetValue(cacheKey, out var cached) && DateTimeOffset.UtcNow < cached.ExpiresAt)
+            return cached.Items;
+
+        var addons = await GetInstalledAsync(token);
+        var catalogQueries = new List<(AddonManifest Addon, CatalogDefinition Catalog)>();
+        foreach (var addon in addons)
+        {
+            foreach (var catalog in addon.Catalogs.Where(c => c.Type == type && (search is null || c.SupportsSearch)))
+            {
+                catalogQueries.Add((addon, catalog));
+            }
+        }
+
+        if (catalogQueries.Count == 0)
+        {
+            var empty = (IReadOnlyList<MediaItem>)Array.Empty<MediaItem>();
+            _catalogCache[cacheKey] = (empty, DateTimeOffset.UtcNow.AddMinutes(10));
+            return empty;
+        }
+
+        var suffix = search is null ? "" : "/search=" + Uri.EscapeDataString(search);
+        var queryTasks = catalogQueries.Select(async q =>
         {
             try
             {
-                var suffix = search is null ? "" : "/search=" + Uri.EscapeDataString(search);
-                using var json = await GetJsonAsync(ResourceUri(addon.ManifestUri, "catalog", type, catalog.Id, suffix), token);
-                if (!json.RootElement.TryGetProperty("metas", out var metas) || metas.ValueKind != JsonValueKind.Array) continue;
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                using var json = await GetJsonAsync(ResourceUri(q.Addon.ManifestUri, "catalog", type, q.Catalog.Id, suffix), linkedCts.Token);
+                if (!json.RootElement.TryGetProperty("metas", out var metas) || metas.ValueKind != JsonValueKind.Array)
+                    return Array.Empty<MediaItem>();
+
+                var list = new List<MediaItem>();
                 foreach (var meta in metas.EnumerateArray())
                 {
-                    var item = ParseMedia(meta, addon.Id, type);
-                    if (item is not null && seen.Add(item.Type + ":" + item.Id)) items.Add(item);
-                    if (items.Count >= 80) return items;
+                    var item = ParseMedia(meta, q.Addon.Id, type);
+                    if (item is not null) list.Add(item);
                 }
+                return (IReadOnlyList<MediaItem>)list;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
-            { _diagnostics.Record("WARN", "Catalog failed", $"{addon.Name}: {ex.Message}"); }
+            {
+                _diagnostics.Record("WARN", "Catalog failed", $"{q.Addon.Name}: {ex.Message}");
+                return Array.Empty<MediaItem>();
+            }
+        });
+
+        var results = await Task.WhenAll(queryTasks);
+        var items = new List<MediaItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var batch in results)
+        {
+            foreach (var item in batch)
+            {
+                if (seen.Add(item.Type + ":" + item.Id))
+                {
+                    items.Add(item);
+                    if (items.Count >= 80) break;
+                }
+            }
+            if (items.Count >= 80) break;
         }
+
+        _catalogCache[cacheKey] = (items, DateTimeOffset.UtcNow.AddMinutes(10));
         return items;
     }
 
     public async Task<MediaMetadata> GetMetadataAsync(MediaItem item, CancellationToken token)
     {
+        var metaKey = $"{item.Type}:{item.Id}";
+        if (_metadataCache.TryGetValue(metaKey, out var cachedMeta))
+            return cachedMeta;
+
         var addons = (await GetInstalledAsync(token)).Where(a => a.HasMetadata)
             .OrderByDescending(a => a.Id == item.AddonId);
         foreach (var addon in addons)
         {
             try
             {
-                using var json = await GetJsonAsync(ResourceUri(addon.ManifestUri, "meta", item.Type, item.Id), token);
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                using var json = await GetJsonAsync(ResourceUri(addon.ManifestUri, "meta", item.Type, item.Id), linkedCts.Token);
                 if (!json.RootElement.TryGetProperty("meta", out var meta)) continue;
                 var detailed = ParseMedia(meta, addon.Id, item.Type) ?? item;
                 var episodes = new List<EpisodeItem>();
@@ -491,13 +630,17 @@ public sealed class StremioService : IAddonService, ICatalogService, IMetadataSe
                     episodes.Add(new EpisodeItem(id, Number(video, "season"), Number(video, "episode"),
                         Value(video, "title") ?? $"Episode {Number(video, "episode")}"));
                 }
-                return new MediaMetadata(detailed, episodes);
+                var result = new MediaMetadata(detailed, episodes);
+                _metadataCache[metaKey] = result;
+                return result;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
             { _diagnostics.Record("WARN", "Metadata failed", $"{addon.Name}: {ex.Message}"); }
         }
-        return new MediaMetadata(item, Array.Empty<EpisodeItem>());
+        var fallback = new MediaMetadata(item, Array.Empty<EpisodeItem>());
+        _metadataCache[metaKey] = fallback;
+        return fallback;
     }
 
     public async Task<IReadOnlyList<StreamSource>> GetStreamsAsync(MediaItem item, CancellationToken token)
@@ -512,7 +655,9 @@ public sealed class StremioService : IAddonService, ICatalogService, IMetadataSe
     {
         try
         {
-            using var json = await TryGetJsonAsync(ResourceUri(addon.ManifestUri, "stream", item.Type, item.Id), token);
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+            using var json = await TryGetJsonAsync(ResourceUri(addon.ManifestUri, "stream", item.Type, item.Id), linkedCts.Token);
             if (json is null || !json.RootElement.TryGetProperty("streams", out var streams) || streams.ValueKind != JsonValueKind.Array)
                 return Array.Empty<StreamSource>();
             var sources = new List<StreamSource>();

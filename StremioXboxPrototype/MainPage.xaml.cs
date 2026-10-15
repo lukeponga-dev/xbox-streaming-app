@@ -20,8 +20,9 @@ using Windows.UI.Xaml.Media.Imaging;
 
 namespace StremioXboxPrototype;
 
-public sealed partial class MainPage : Page
-{
+public partial class MainPage : Page
+    {
+
     private sealed record PageState(string Name, string Query = "", MediaItem? Media = null, StreamSource? Stream = null);
 
     private readonly IDiagnosticsService _diagnostics = new DiagnosticsService();

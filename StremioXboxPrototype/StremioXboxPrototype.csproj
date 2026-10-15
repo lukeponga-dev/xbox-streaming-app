@@ -18,6 +18,7 @@
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="Assets\*.png" />
+    <Compile Include="$(IntermediateOutputPath)*.g.cs" />
+    <Compile Include="$(IntermediateOutputPath)*.g.i.cs" />
   </ItemGroup>
 </Project>
