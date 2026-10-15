@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "StremioXboxPrototype": {
+      "commandName": "MsixPackage"
+    }
+  }
+}

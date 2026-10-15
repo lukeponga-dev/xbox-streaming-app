@@ -7,9 +7,7 @@
     <UseUwpTools>true</UseUwpTools>
     <EnableMsixTooling>true</EnableMsixTooling>
     <MakeAppxExeFullPath Condition="'$(MakeAppxExeFullPath)' == '' and Exists('$(WindowsSdkPath)bin\$(TargetPlatformVersion)\x64\MakeAppx.exe')">$(WindowsSdkPath)bin\$(TargetPlatformVersion)\x64\MakeAppx.exe</MakeAppxExeFullPath>
-    <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
-    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
     <Nullable>enable</Nullable>
     <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -19,4 +17,7 @@
     <PackageCertificateKeyFile>StremioXboxPrototype_TemporaryKey.pfx</PackageCertificateKeyFile>
     <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\*.png" />
+  </ItemGroup>
 </Project>

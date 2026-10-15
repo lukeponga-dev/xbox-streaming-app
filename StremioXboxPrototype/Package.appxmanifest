@@ -7,5 +7,8 @@
   </Dependencies>
   <Resources><Resource Language="x-generate" /></Resources>
   <Applications><Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="StremioXboxPrototype.App"><uap:VisualElements DisplayName="Stremio Xbox" Description="Controller-first streaming client" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" BackgroundColor="transparent" ><uap:DefaultTile/></uap:VisualElements ></Application></Applications>
-  <Capabilities><Capability Name="internetClient" /></Capabilities>
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <Capability Name="privateNetworkClientServer" />
+  </Capabilities>
 </Package>
