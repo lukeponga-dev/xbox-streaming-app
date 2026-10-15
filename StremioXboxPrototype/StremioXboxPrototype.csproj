@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <OutputType>WinExe</OutputType>
+    <UseUwp>true</UseUwp>
+    <UseUwpTools>true</UseUwpTools>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <MakeAppxExeFullPath Condition="'$(MakeAppxExeFullPath)' == '' and Exists('$(WindowsSdkPath)bin\$(TargetPlatformVersion)\x64\MakeAppx.exe')">$(WindowsSdkPath)bin\$(TargetPlatformVersion)\x64\MakeAppx.exe</MakeAppxExeFullPath>
+    <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
+    <Nullable>enable</Nullable>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <Platforms>AnyCPU;ARM64;x64</Platforms>
+    <PackageCertificateThumbprint>0CA8B249D352618CE0A1CE6D175FD622EEE9D81E</PackageCertificateThumbprint>
+    <PackageCertificateKeyFile>StremioXboxPrototype_TemporaryKey.pfx</PackageCertificateKeyFile>
+    <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
+  </PropertyGroup>
+</Project>

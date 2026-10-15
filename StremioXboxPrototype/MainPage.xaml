@@ -1,0 +1,57 @@
+<Page x:Class="StremioXboxPrototype.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="{StaticResource BackgroundBrush}" KeyDown="OnKeyDown">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="210"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Background="#0D1030" BorderBrush="#24264F" BorderThickness="0,0,1,0">
+            <Grid Margin="14,20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="64"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="100"/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="▶" FontSize="35" Foreground="#8B6CFF" HorizontalAlignment="Center"/>
+                <StackPanel Grid.Row="1">
+                    <Button Style="{StaticResource FocusButton}" Tag="Home" Click="Navigate_Click" Content="⌂   Home"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Discover" Click="Navigate_Click" Content="⌕   Discover"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Library" Click="Navigate_Click" Content="▣   Library"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Add-ons" Click="Navigate_Click" Content="⌁   Add-ons"/>
+                    <Border Height="1" Background="#33365C" Margin="10,20,10,12"/>
+                    <TextBlock Text="DEVELOPER / ADVANCED" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="10,0,0,8"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Playback Lab" Click="Navigate_Click" Content="⚗   Playback Lab"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Server" Click="Navigate_Click" Content="▤   Server"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Diagnostics" Click="Navigate_Click" Content="⌁   Diagnostics"/>
+                    <Button Style="{StaticResource FocusButton}" Tag="Settings" Click="Navigate_Click" Content="⚙   Settings"/>
+                </StackPanel>
+                <StackPanel Grid.Row="2">
+                    <TextBlock Text="🅰  Select" Foreground="#72E98D"/>
+                    <TextBlock Text="🅱  Back" Foreground="#FF7487" Margin="0,8,0,0"/>
+                    <TextBlock Text="🆈  Search" Foreground="#FFD04F" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        <Grid Grid.Column="1" Margin="28,20,28,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="50"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="530"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="GlobalSearch" Grid.Column="1" PlaceholderText="⌕  Search movies, series, or add-ons" Background="#20214C" Foreground="White" BorderBrush="#46448A" CornerRadius="24" Padding="20,8" KeyDown="Search_KeyDown"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource FocusButton}" Content="↻  Refresh" Click="Refresh_Click"/>
+                    <Button Style="{StaticResource FocusButton}" Content="⌕  Search" Tag="Search" Click="Navigate_Click"/>
+                    <Button Style="{StaticResource FocusButton}" Content="♙  Profile" Tag="Profile" Click="Navigate_Click"/>
+                </StackPanel>
+            </Grid>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="ContentHost" Padding="0,12,0,0"/>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>
