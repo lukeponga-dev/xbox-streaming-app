@@ -22,6 +22,7 @@ public sealed record CatalogDefinition(string Type, string Id, string Name, bool
 public sealed record AddonManifest(string Id, string Name, string Description, Uri ManifestUri, IReadOnlyList<CatalogDefinition> Catalogs, bool HasMetadata, bool HasStreams);
 public sealed record DiagnosticEvent(DateTimeOffset Time, string Level, string Message, string Detail);
 public sealed record ServerInfo(string Name, Uri Endpoint, string Status, DateTimeOffset? LastConnected = null);
+public sealed record StremioAccount(string Id, string DisplayName, string? Email);
 
 public sealed class AppSettings
 {

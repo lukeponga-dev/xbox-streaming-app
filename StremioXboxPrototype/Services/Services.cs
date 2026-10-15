@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using StremioXboxPrototype.Models;
 using Windows.Networking.Connectivity;
+using Windows.Security.Credentials;
 using Windows.Storage;
 
 namespace StremioXboxPrototype.Services;
@@ -28,6 +30,12 @@ public interface IDiagnosticsService
     string InternetStatus();
 }
 public interface ISettingsService { Task<AppSettings> LoadAsync(); Task SaveAsync(AppSettings settings); }
+public interface IAuthService
+{
+    Task<StremioAccount?> GetCurrentAsync();
+    Task<StremioAccount> LoginAsync(string email, string password, CancellationToken token);
+    Task LogoutAsync(CancellationToken token);
+}
 public interface IServerService { Task<ServerInfo?> TestAsync(string url, CancellationToken token); }
 public interface ILibraryService
 {
@@ -87,6 +95,109 @@ public sealed class SettingsService : ISettingsService
         ApplicationData.Current.LocalSettings.Values[Key] = JsonSerializer.Serialize(settings, SettingsJsonContext.Default.AppSettings);
         return Task.CompletedTask;
     }
+}
+
+public sealed class StremioAuthService : IAuthService
+{
+    private const string Endpoint = "https://api.strem.io/api/";
+    private const string AccountKey = "stremio-account";
+    private const string VaultResource = "StremioXbox.Stremio.Auth";
+    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(15) };
+
+    public Task<StremioAccount?> GetCurrentAsync()
+    {
+        var json = ApplicationData.Current.LocalSettings.Values[AccountKey] as string;
+        if (string.IsNullOrWhiteSpace(json) || GetAuthKey() is null) return Task.FromResult<StremioAccount?>(null);
+        try { return Task.FromResult<StremioAccount?>(JsonSerializer.Deserialize<StremioAccount>(json)); }
+        catch (JsonException) { return Task.FromResult<StremioAccount?>(null); }
+    }
+
+    public async Task<StremioAccount> LoginAsync(string email, string password, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            throw new ArgumentException("Enter both your Stremio email and password.");
+
+        var requestBody = JsonSerializer.Serialize(new { authKey = (string?)null, email = email.Trim(), password });
+        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint + "login")
+        {
+            Content = new StringContent(requestBody, Encoding.UTF8, "application/json")
+        };
+        using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        var body = await response.Content.ReadAsStringAsync(token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException("Stremio sign-in is unavailable. Please try again.");
+
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.TryGetProperty("error", out var error))
+            throw new InvalidOperationException(ErrorText(error) ?? "Stremio rejected the sign-in request.");
+        if (!root.TryGetProperty("result", out var result)) throw new JsonException("Stremio returned an unexpected sign-in response.");
+        var authKey = Value(result, "authKey") ?? throw new JsonException("Stremio did not return a session key.");
+        if (!result.TryGetProperty("user", out var user)) throw new JsonException("Stremio did not return a user profile.");
+        var account = new StremioAccount(Value(user, "_id") ?? email.Trim(),
+            Value(user, "username") ?? Value(user, "email") ?? email.Trim(), Value(user, "email") ?? email.Trim());
+
+        SaveAuthKey(account.Id, authKey);
+        ApplicationData.Current.LocalSettings.Values[AccountKey] = JsonSerializer.Serialize(account);
+        return account;
+    }
+
+    public async Task LogoutAsync(CancellationToken token)
+    {
+        var authKey = GetAuthKey();
+        if (!string.IsNullOrWhiteSpace(authKey))
+        {
+            try
+            {
+                var body = JsonSerializer.Serialize(new { authKey });
+                using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint + "logout")
+                { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+                using var response = await Client.SendAsync(request, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (HttpRequestException) { }
+        }
+        ClearAuthKey();
+        ApplicationData.Current.LocalSettings.Values.Remove(AccountKey);
+    }
+
+    private static string? GetAuthKey()
+    {
+        try
+        {
+            var credential = new PasswordVault().RetrieveAll().FirstOrDefault(c => c.Resource == VaultResource);
+            if (credential is null) return null;
+            credential.RetrievePassword();
+            return credential.Password;
+        }
+        catch (Exception) { return null; }
+    }
+
+    private static void SaveAuthKey(string userId, string authKey)
+    {
+        ClearAuthKey();
+        new PasswordVault().Add(new PasswordCredential(VaultResource, userId, authKey));
+    }
+
+    private static void ClearAuthKey()
+    {
+        try
+        {
+            var vault = new PasswordVault();
+            foreach (var credential in vault.RetrieveAll().Where(c => c.Resource == VaultResource)) vault.Remove(credential);
+        }
+        catch (Exception) { }
+    }
+
+    private static string? ErrorText(JsonElement error) => error.ValueKind switch
+    {
+        JsonValueKind.String => error.GetString(),
+        JsonValueKind.Object when Value(error, "message") is { } message => message,
+        _ => null
+    };
+
+    private static string? Value(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }
 
 public sealed class LibraryService : ILibraryService

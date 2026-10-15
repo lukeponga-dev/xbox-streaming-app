@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using StremioXboxPrototype.Models;
@@ -23,6 +25,7 @@ public sealed partial class MainPage : Page
 
     private readonly IDiagnosticsService _diagnostics = new DiagnosticsService();
     private readonly ISettingsService _settings = new SettingsService();
+    private readonly IAuthService _auth = new StremioAuthService();
     private readonly ILibraryService _library = new LibraryService();
     private readonly IServerService _server = new ServerService();
     private readonly StremioService _stremio;
@@ -41,6 +44,7 @@ public sealed partial class MainPage : Page
         Loaded += async (_, _) =>
         {
             _appSettings = await _settings.LoadAsync();
+            await UpdateProfileHeaderAsync();
             await ShowPageAsync(new PageState("Home"), false);
         };
     }
@@ -54,6 +58,15 @@ public sealed partial class MainPage : Page
         TextWrapping = TextWrapping.Wrap
     };
 
+    private TextBlock PageTitle(string value) => new()
+    {
+        Text = value,
+        FontSize = 38,
+        FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+        Foreground = Brush("TextPrimaryBrush"),
+        Margin = new Thickness(0, 0, 0, 1)
+    };
+
     private Button Action(string label, Action click)
     {
         var button = new Button { Content = label, Style = ButtonStyle };
@@ -63,9 +76,9 @@ public sealed partial class MainPage : Page
 
     private Border Panel(UIElement child) => new()
     {
-        Background = Brush("SurfaceBrush"), BorderBrush = new SolidColorBrush(Color.FromArgb(255, 46, 54, 92)),
-        BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(18),
-        Margin = new Thickness(0, 7, 0, 7), Child = child
+        Background = Brush("SurfaceBrush"), BorderBrush = new SolidColorBrush(Color.FromArgb(255, 44, 53, 105)),
+        BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(20),
+        Margin = new Thickness(0, 8, 0, 8), Child = child
     };
 
     private void Message(string value) => ContentHost.Children.Add(Panel(Text(value, 17, false)));
@@ -84,9 +97,12 @@ public sealed partial class MainPage : Page
         var token = _pageCts.Token;
         if (_player is not null) { _player.Source = null; _player = null; }
         _current = next;
+        UpdateNavigation(next.Name);
         ContentHost.Children.Clear();
-        ContentHost.Children.Add(Text(next.Name == "Details" ? next.Media?.Title ?? "Details" : next.Name, 38));
-        ContentHost.Children.Add(Text(Subtitle(next.Name), 18, false));
+        ContentHost.Children.Add(PageTitle(next.Name == "Details" ? next.Media?.Title ?? "Details" : next.Name));
+        var subtitle = Text(Subtitle(next.Name), 18, false);
+        subtitle.Margin = new Thickness(0, 0, 0, 12);
+        ContentHost.Children.Add(subtitle);
 
         try
         {
@@ -106,7 +122,7 @@ public sealed partial class MainPage : Page
                 case "Server": Server(); break;
                 case "Diagnostics": Diagnostics(); break;
                 case "Playback Lab": PlaybackLab(); break;
-                case "Profile": Profile(); break;
+                case "Profile": await ProfileAsync(token); break;
             }
             if (!token.IsCancellationRequested && next.Name != "Search") FocusContent();
         }
@@ -126,6 +142,23 @@ public sealed partial class MainPage : Page
             if (FindButton(child) is { } button && button.Focus(FocusState.Programmatic)) return;
         }
         HomeNav.Focus(FocusState.Programmatic);
+    }
+
+    private void UpdateNavigation(string page)
+    {
+        foreach (var button in new[] { HomeNav, DiscoverNav, LibraryNav, AddonsNav, PlaybackLabNav, ServerNav, DiagnosticsNav, SettingsNav })
+        {
+            var active = string.Equals(button.Tag as string, page, StringComparison.Ordinal);
+            button.Background = active ? Brush("AccentBrush") : Brush("SurfaceBrush");
+            button.BorderBrush = active ? Brush("FocusBorderBrush") : new SolidColorBrush(Color.FromArgb(255, 44, 53, 105));
+            button.Foreground = Brush("TextPrimaryBrush");
+        }
+    }
+
+    private async Task UpdateProfileHeaderAsync()
+    {
+        var account = await _auth.GetCurrentAsync();
+        ProfileHeaderText.Text = account?.DisplayName ?? "Profile";
     }
 
     private static Button? FindButton(DependencyObject root)
@@ -273,8 +306,8 @@ public sealed partial class MainPage : Page
 
     private Button MediaCard(MediaItem item)
     {
-        var card = new StackPanel { Width = 174 };
-        var poster = new Border { Height = 235, Background = Brush("SurfaceBrush"), CornerRadius = new CornerRadius(8) };
+        var card = new StackPanel { Width = 178 };
+        var poster = new Border { Height = 244, Background = Brush("SurfaceBrush"), CornerRadius = new CornerRadius(8) };
         if (Uri.TryCreate(item.Poster, UriKind.Absolute, out var posterUri))
             poster.Child = new Image { Source = new BitmapImage(posterUri), Stretch = Stretch.UniformToFill };
         else poster.Child = new TextBlock { Text = item.Title.Length > 0 ? item.Title[..1] : "?", FontSize = 56, Foreground = Brush("AccentBrush"),
@@ -282,8 +315,8 @@ public sealed partial class MainPage : Page
         card.Children.Add(poster);
         card.Children.Add(Text(item.Title, 16));
         card.Children.Add(Text(string.Join(" • ", new[] { item.ReleaseInfo, item.Runtime }.Where(x => !string.IsNullOrWhiteSpace(x))), 13, false));
-        var button = new Button { Content = card, Style = ButtonStyle, Width = 190,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(2, 4, 8, 4) };
+        var button = new Button { Content = card, Style = ButtonStyle, Width = 190, Padding = new Thickness(6),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(2, 4, 10, 4) };
         button.Click += (_, _) => _ = ShowPageAsync(new PageState("Details", Media: item));
         button.GotFocus += (_, _) => Canvas.SetZIndex(button, 10);
         button.LostFocus += (_, _) => Canvas.SetZIndex(button, 0);
@@ -490,9 +523,60 @@ public sealed partial class MainPage : Page
         }));
     }
 
-    private void Profile()
+    private async Task ProfileAsync(CancellationToken token)
     {
-        ContentHost.Children.Add(Panel(Text($"Local profile\nSaved items: {_library.Watchlist().Count}\nInternet: {_diagnostics.InternetStatus()}", 19)));
+        var account = await _auth.GetCurrentAsync();
+        if (account is not null)
+        {
+            ContentHost.Children.Add(Panel(Text($"Signed in to Stremio\n{account.DisplayName}\n{account.Email}\n\nSaved items on this device: {_library.Watchlist().Count}", 19)));
+            ContentHost.Children.Add(Action("Sign out", async () =>
+            {
+                try
+                {
+                    await _auth.LogoutAsync(_pageCts.Token);
+                    await UpdateProfileHeaderAsync();
+                    Feedback("Signed out of Stremio on this device.");
+                    await ShowPageAsync(new PageState("Profile"), false);
+                }
+                catch (OperationCanceledException) { }
+            }));
+            return;
+        }
+
+        ContentHost.Children.Add(Panel(Text("Sign in with your Stremio account to use its account session in this app. Your password is sent only to Stremio over HTTPS and is never saved here.", 17, false)));
+        var email = new TextBox
+        {
+            Header = "Stremio email", PlaceholderText = "you@example.com", InputScope = new Windows.UI.Xaml.Input.InputScope
+            {
+                Names = { new Windows.UI.Xaml.Input.InputScopeName(Windows.UI.Xaml.Input.InputScopeNameValue.EmailSmtpAddress) }
+            },
+            Background = Brush("SurfaceBrush"), Foreground = Brush("TextPrimaryBrush"), BorderBrush = Brush("FocusBorderBrush"),
+            MinWidth = 440, Padding = new Thickness(14), Margin = new Thickness(0, 8, 0, 6)
+        };
+        var password = new PasswordBox
+        {
+            Header = "Password", PlaceholderText = "Your Stremio password", Background = Brush("SurfaceBrush"),
+            Foreground = Brush("TextPrimaryBrush"), BorderBrush = Brush("FocusBorderBrush"), MinWidth = 440,
+            Padding = new Thickness(14), Margin = new Thickness(0, 6, 0, 8)
+        };
+        ContentHost.Children.Add(email);
+        ContentHost.Children.Add(password);
+        ContentHost.Children.Add(Action("Sign in to Stremio", async () =>
+        {
+            var secret = password.Password;
+            password.Password = string.Empty;
+            try
+            {
+                var signedIn = await _auth.LoginAsync(email.Text, secret, _pageCts.Token);
+                await UpdateProfileHeaderAsync();
+                Feedback($"Signed in as {signedIn.DisplayName}.");
+                await ShowPageAsync(new PageState("Profile"), false);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) when (ex is ArgumentException or HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
+            { Feedback(ex.Message); }
+        }));
+        Message("Google, Facebook, and Apple sign-in require their provider-specific authorization flow and are not included in this email/password screen.");
     }
 
     private void Back()
